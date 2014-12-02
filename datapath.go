@@ -4,28 +4,24 @@ package main
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Memory
-var Main_Memory [1024]byte
+type Memory [1024]byte
+
+var Main_Memory Memory
 
 // Normal Registers
-var Regs [32]int
+type Registers [32]int
+
+var Regs Registers
 
 // "program counter" value (index into instruction cache)
 var PC int
 
 // our raw hex instruction input
 var InstructionCache = []uint32{}
-
-// every pipeline register going to be copyable
-// to facilitate easy copy over
-type Copyable interface {
-	copyOver()
-}
-
-// Pipeline Registers
-var PipeRegs [8]Copyable
 
 // the Disassembleable interface is fulfilled by
 // both R and I format MIPS instructions, implicitly
@@ -40,13 +36,15 @@ type IFIDReg struct {
 
 	// this is the instruction itself
 	// disassembleable is the interface type for all instructions
-	Inst Disassembleable
+	//Inst Disassembleable
+	Inst uint32
 }
 
 // our two IFID Registers
 var W_IFID IFIDReg
 var R_IFID IFIDReg
 
+// our ID/EX register, written to by ID stage
 type IDEXReg struct {
 	// read or write?
 	isWriteReg bool
@@ -60,6 +58,14 @@ type IDEXReg struct {
 	Branch   bool
 	MemToReg bool
 	RegWrite bool
+
+	// values
+	ReadReg1Value uint32
+	ReadReg2Value uint32
+	SEOffset      int16
+
+	WriteRegNum1 int
+	WriteRegNum2 int
 }
 
 // our two IDEX Registers
@@ -75,6 +81,13 @@ type EXMEMReg struct {
 	Branch   bool
 	MemToReg bool
 	RegWrite bool
+
+	// values
+	// CalcBTA branch target offset?
+	isZero      bool
+	ALUResult   int32
+	SWValue     uint32
+	WriteRegNum uint32
 }
 
 // our two EXMEM Registers
@@ -87,13 +100,21 @@ type MEMWBReg struct {
 	// controls:
 	MemToReg bool
 	RegWrite bool
+
+	// should this be load byte?
+	LWDataValue byte
+	ALUResult   int32
+	WriteRegNum uint32
 }
+
+var W_MEMWB MEMWBReg
+var R_MEMWB MEMWBReg
 
 func main() {
 	initialize()
 
 	// while not done
-	for PC != len(instructionCache)+5 {
+	for i := 0; i < len(InstructionCache); i++ {
 		IF_Stage()
 		ID_Stage()
 		EX_Stage()
@@ -102,10 +123,10 @@ func main() {
 		print()
 		advanceRegisters()
 	}
+
 }
 
 func initialize() {
-
 	// init main memory
 	initMainMemory()
 
@@ -119,45 +140,90 @@ func initialize() {
 	initInstructionCache()
 }
 
+func IF_Stage() {
+	//fmt.Println(W_IFID)
+
+	// simply put the current instruction in the WRITE side IF/ID reg
+	W_IFID.Inst = InstructionCache[PC]
+	PC++
+
+	//fmt.Println(W_IFID)
+}
+
+func ID_Stage() {
+
+}
+
+func EX_Stage() {
+
+}
+
+func MEM_Stage() {
+
+}
+
+func WB_Stage() {
+
+}
+
 func print() {
+	// print registers
+	fmt.Println(Registers)
+
+	// read/write versions of each PipeReg
+
+}
+
+func advanceRegisters() {
+	// copy all write registers to their read counterparts
 
 }
 
 func initMainMemory() {
 	inc := byte(0x00)
-	Main_Memory[i] = inc
-	if inc == 0x99 {
-		inc = 0x00
+	for i, _ := range Main_Memory {
+		Main_Memory[i] = inc
+		if inc == 0xFF {
+			inc = 0x00
+			continue
+		}
+		inc++
 	}
-	inc++
+	fmt.Println(Main_Memory)
 }
 
 func initPipelineRegs() {
-	// initialize all control signals with nops
+	// all control signals by default are false, therefore nops
 
 	// init the write versions
 	writeInstruction := true
-	W_IFID := IFIDReg{writeInstruction, &rInstruction{bits: 0}}
-	W_IDEX := IDEXReg{writeInstruction, &rInstruction{bits: 0}}
-	W_EXMEM := EXMEMReg{writeInstruction, &rInstruction{bits: 0}}
-	W_MEMWB := MEMWBReg{writeInstruction, &rInstruction{bits: 0}}
+	W_IFID = IFIDReg{isWriteReg: writeInstruction}
+	W_IDEX = IDEXReg{isWriteReg: writeInstruction}
+	W_EXMEM = EXMEMReg{isWriteReg: writeInstruction}
+	W_MEMWB = MEMWBReg{isWriteReg: writeInstruction}
 
 	// init the read versions
 	writeInstruction = false
-	R_IFID := IFIDReg{writeInstruction, &rInstruction{bits: 0}}
-	R_IDEX := IDEXReg{writeInstruction, &rInstruction{bits: 0}}
-	R_EXMEM := EXMEMReg{writeInstruction, &rInstruction{bits: 0}}
-	R_MEMWB := MEMWBReg{writeInstruction, &rInstruction{bits: 0}}
-
+	R_IFID = IFIDReg{isWriteReg: writeInstruction}
+	R_IDEX = IDEXReg{isWriteReg: writeInstruction}
+	R_EXMEM = EXMEMReg{isWriteReg: writeInstruction}
+	R_MEMWB = MEMWBReg{isWriteReg: writeInstruction}
 }
 
 func initRegs() {
+	// ensure register 0 contains 0x0
+	Regs[0] = 0x0
+
+	// then every other register
 	for i := 1; i < 32; i++ {
-		Regs[i] = 0x100 + 1
+		Regs[i] = 0x100 + i
 	}
+	fmt.Println("Regs: ")
+	fmt.Println(Regs)
 }
 
 func initInstructionCache() {
+	// our input instructions
 	InstructionCache = []uint32{
 		0xA1020000,
 		0x810AFFFC,
@@ -175,11 +241,6 @@ func initInstructionCache() {
 
 	// start "program counter" at 0
 	PC = 0
-}
-
-func advanceRegisters() {
-	// copy all write registers to their read counterparts
-
 }
 
 // from Disassemble
@@ -222,6 +283,7 @@ var iConstMask = Mask{0x0000FFFF, 0}
 
 // TODO: manipulate to a single decode, not whole array, to do one one at a time.
 // TODO: add support for nop if necessary
+/*
 func buildInstructions(input []uint32) []Disassembleable {
 	instructions := make([]Disassembleable, len(input))
 
@@ -243,6 +305,7 @@ func buildInstructions(input []uint32) []Disassembleable {
 
 	return instructions
 }
+*/
 
 // r.disassemble() extracts data from rInstruction bits
 // also fulfills the Disassembleable interface for rInstructs.
@@ -289,10 +352,12 @@ func (i *iInstruction) getInstruction() string {
 
 // getBranchToAddress() calcs branch address using pc-relative offset
 // and the address of the current instruction
+/*
 func (i *iInstruction) getBranchToAddress() uint32 {
 	// shift offset/const 2 bits left to decompress, and account for incrememted pc
 	return i.address + addressSize + (uint32(i.constant) << 2)
 }
+*/
 
 // maskAndShift() returns desired bits in a 32-bit value
 // depending on the mask (including a shift value)
@@ -304,4 +369,25 @@ func maskAndShift(mask Mask, inputBits uint32) uint32 {
 // depending on the mask (including a shift value)
 func maskAndShiftShort(mask Mask, inputBits int16) int16 {
 	return (inputBits & int16(mask.bits)) >> mask.shift
+}
+
+// to String Methods:
+func (r Registers) String() string {
+	registerStrings := make([]string, len(r))
+	for i, _ := range r {
+		registerStrings[i] = fmt.Sprintf("[$%.2d]: 0x%.3X\n", i, r[i])
+	}
+	return fmt.Sprintf(strings.Join(registerStrings, ""))
+}
+
+func (m Memory) String() string {
+	memoryStrings := make([]string, len(m))
+	for i, _ := range m {
+		if m[i] == 0xFF {
+			memoryStrings[i] = fmt.Sprintf("0x%X\n\n", m[i])
+		} else {
+			memoryStrings[i] = fmt.Sprintf("0x%X", m[i])
+		}
+	}
+	return fmt.Sprintf(strings.Join(memoryStrings, " "))
 }
