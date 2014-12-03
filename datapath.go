@@ -101,8 +101,7 @@ type MEMWBReg struct {
 	MemToReg bool
 	RegWrite bool
 
-	// should this be load byte?
-	LWDataValue byte
+	LBDataValue byte
 	ALUResult   int32
 	WriteRegNum uint32
 }
@@ -151,32 +150,100 @@ func IF_Stage() {
 }
 
 func ID_Stage() {
+	// read instruction from read IF/ID side
+	instructionBits := R_IFID.Inst
+
+	// decode instruction
+	instruction := decodeInstruction(instructionBits)
+	instruction.disassemble()
+
+	// set controls
+
+	W_IDEX.Branch = false
+
+	/*
+		//controls:
+		RegDst   bool
+		ALUSrc   bool
+		ALUOp    bool
+		MemRead  bool
+		MemWrite bool
+		Branch   bool
+		MemToReg bool
+		RegWrite bool
+
+		// values
+		ReadReg1Value uint32
+		ReadReg2Value uint32
+		SEOffset      int16
+
+		WriteRegNum1 int
+		WriteRegNum2 int
+	*/
+
+	// write information to Write side ID/EX
 
 }
 
 func EX_Stage() {
+	// perform requested instruction indicated by info on READ side ID/EX
 
+	// handle nop (do nothing)
+
+	// handle lb/sb
+
+	// handle add, sub
+
+	// put values in WRITE side EX/MEM Register
 }
 
 func MEM_Stage() {
+	// if instruction is a lb, use address calculated in EX, index into MM
+	// get value there, put into MEM/WB
+	if R_EXMEM.MemRead {
+		// index into MM (think we use the ALU result for this)
+		W_MEMWB.LBDataValue = Main_Memory[R_EXMEM.ALUResult]
+	} else {
+		// otherwise we're just passing information from EX/MEM to MEM/WB registers
+		W_MEMWB.ALUResult = R_EXMEM.ALUResult
+		W_MEMWB.MemToReg = R_EXMEM.MemToReg
+		W_MEMWB.RegWrite = R_EXMEM.RegWrite
+		W_MEMWB.WriteRegNum = R_EXMEM.WriteRegNum
+		W_MEMWB.isWriteReg = R_EXMEM.isWriteReg
+	}
 
 }
 
 func WB_Stage() {
-
+	// write to the registers from READ side MEM/WB
 }
 
 func print() {
 	// print registers
-	fmt.Println(Registers)
+	fmt.Println(Regs)
 
 	// read/write versions of each PipeReg
+	fmt.Printf("Write IF/ID Reg: %v\n", W_IFID)
+	fmt.Printf("Read  IF/ID Reg: %v\n", R_IFID)
+
+	fmt.Printf("Write ID/EX Reg: %v\n", W_IDEX)
+	fmt.Printf("Read  ID/EX Reg: %v\n", R_IDEX)
+
+	fmt.Printf("Write EX/MEM Reg: %v\n", W_EXMEM)
+	fmt.Printf("Read  EX/MEM Reg: %v\n", R_EXMEM)
+
+	fmt.Printf("Write MEM/WB Reg: %v\n", W_MEMWB)
+	fmt.Printf("Read  MEM/WB Reg: %v\n", R_MEMWB)
 
 }
 
 func advanceRegisters() {
 	// copy all write registers to their read counterparts
-
+	// can i just do this or do i need to copy each value?
+	R_IFID = W_IFID
+	R_IDEX = W_IDEX
+	R_EXMEM = W_EXMEM
+	R_MEMWB = W_MEMWB
 }
 
 func initMainMemory() {
@@ -218,8 +285,10 @@ func initRegs() {
 	for i := 1; i < 32; i++ {
 		Regs[i] = 0x100 + i
 	}
-	fmt.Println("Regs: ")
-	fmt.Println(Regs)
+	/*
+		fmt.Println("Regs: ")
+		fmt.Println(Regs)
+	*/
 }
 
 func initInstructionCache() {
@@ -244,11 +313,10 @@ func initInstructionCache() {
 }
 
 // from Disassemble
-
 // rInstruction represents an r-format MIPS instruction
 type rInstruction struct {
-	bits        uint32
-	address     uint32
+	bits uint32
+	//address     uint32
 	instruction string
 	opcode      uint32
 	src1        uint32
@@ -259,8 +327,8 @@ type rInstruction struct {
 
 // iInstruction represents an i-format MIPS instruction
 type iInstruction struct {
-	bits        uint32
-	address     uint32
+	bits uint32
+	//address     uint32
 	instruction string
 	opcode      uint32
 	src1        uint32
@@ -283,29 +351,22 @@ var iConstMask = Mask{0x0000FFFF, 0}
 
 // TODO: manipulate to a single decode, not whole array, to do one one at a time.
 // TODO: add support for nop if necessary
-/*
-func buildInstructions(input []uint32) []Disassembleable {
-	instructions := make([]Disassembleable, len(input))
 
+func decodeInstruction(input uint32) Disassembleable {
+	var instruction Disassembleable
+
+	opcode := maskAndShift(opcodeMask, input)
+
+	// do we need the address?
 	// need to get opcode, if 000000, build an rInstruction, else iInstruction
-	for i, inputBits := range input {
-		var newInstruction Disassembleable
-		opcode := maskAndShift(opcodeMask, inputBits)
-
-		if opcode == 0 {
-			newInstruction = &rInstruction{bits: inputBits, opcode: opcode,
-				address: pc}
-		} else {
-			newInstruction = &iInstruction{bits: inputBits, opcode: opcode,
-				address: pc}
-		}
-
-		instructions[i] = newInstruction
+	if opcode == 0 {
+		instruction = &rInstruction{bits: input, opcode: opcode}
+	} else {
+		instruction = &iInstruction{bits: input, opcode: opcode}
 	}
 
-	return instructions
+	return instruction
 }
-*/
 
 // r.disassemble() extracts data from rInstruction bits
 // also fulfills the Disassembleable interface for rInstructs.
