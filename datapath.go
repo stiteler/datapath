@@ -220,12 +220,15 @@ func ID_Stage() {
 
 // Execute the instruction and place info in the EX/MEM Pipeline Register
 func EX_Stage() {
-	// if ALUSrc is true, the we're adding from the offset
-	// determine correct write register value from the ALUSrc
+
+	// simulating the ALUSrc MUX
+	var inputToALU int32
 	if R_IDEX.ALUSrc {
-		inputToALU := R_IDEX.SEOffset
+		// if ALUSrc is true, our input to ALU is SEOffset and Reg1
+		inputToALU = R_IDEX.SEOffset
 	} else {
-		inputToALU := R_IDEX.ReadReg2Value
+		// else our input to ALU is reg1, reg2 values
+		inputToALU = R_IDEX.ReadReg2Value
 	}
 
 	// NEED TO SWITCH ON ALUOp 10 for arithmetic, 00 for lb/sb
@@ -235,10 +238,10 @@ func EX_Stage() {
 		// we have an arith. op (add, sub, or nop)
 		switch R_IDEX.RFunctionBits {
 		case ADD:
-			W_EXMEM.ALUResult = R_IDEX.ReadReg1Value + R_IDEX.ReadReg2Value
+			W_EXMEM.ALUResult = R_IDEX.ReadReg1Value + inputToALU
 			break
 		case SUB:
-			W_EXMEM.ALUResult = R_IDEX.ReadReg1Value - R_IDEX.ReadReg2Value
+			W_EXMEM.ALUResult = R_IDEX.ReadReg1Value - inputToALU
 			break
 		case NOP:
 			return
@@ -249,15 +252,15 @@ func EX_Stage() {
 		if R_IDEX.MemToReg {
 			// we're loading a byte
 			// add the SEOffset to the register
-			W_EXMEM.ALUResult = R_IDEX.SEOffset + R_IDEX.ReadReg1Value
-			// set the value where the byte will be stored
-			W_EXMEM.SWValue = R_IDEX.ReadReg2Value
+			W_EXMEM.ALUResult = inputToALU + R_IDEX.ReadReg1Value
+			// always get's stored anyways
+			//W_EXMEM.SWValue = R_IDEX.ReadReg2Value
 			// write to the lb write register
-			// control with ALUSrc bit
+
 			W_EXMEM.WriteRegNum = R_IDEX.WriteRegNumAlt
 		} else if R_IDEX.MemWrite {
 			// we're storing a byte:
-			W_EXMEM.ALUResult = R_IDEX.SEOffset + R_IDEX.ReadReg1Value
+			W_EXMEM.ALUResult = inputToALU + R_IDEX.ReadReg1Value
 			W_EXMEM.SWValue = R_IDEX.ReadReg2Value
 		}
 
