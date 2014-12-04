@@ -43,8 +43,6 @@ type Disassembleable interface {
 type IFIDReg struct {
 	// the instruction itself
 	Inst uint32
-
-	//TODO the program counter in here?
 }
 
 // our two IFID Registers
@@ -146,14 +144,16 @@ func initialize() {
 	initInstructionCache()
 }
 
+// Instruction Fetch
 func IF_Stage() {
 	// simply put the current instruction in the WRITE side IF/ID reg
 	W_IFID.Inst = InstructionCache[PC]
 	PC++
 }
 
+// Instruction Decode
 func ID_Stage() {
-	// read instruction from read IF/ID side
+	// read instruction from read IF/ID reg side
 	instructionBits := R_IFID.Inst
 
 	// decode instruction
@@ -162,10 +162,7 @@ func ID_Stage() {
 
 	// set controls
 	if instruction.isRFormat() {
-		//fmt.Println("setting up R format")
-		// TODO make sure i've got the regdst issue aligned with example
-
-		// set control bits for all rtype instructions
+		// for all rtype instructions the following apply
 		W_IDEX.RegDst = true
 		W_IDEX.ALUSrc = false
 		W_IDEX.RegWrite = true
@@ -174,13 +171,13 @@ func ID_Stage() {
 		W_IDEX.MemWrite = false
 		W_IDEX.Branch = false
 
-		// ALUOp of 10 (bits) signals an arithmetic operation
+		// ALUOp of 10 (in binary) signals an arithmetic operation
 		W_IDEX.ALUOp = 2
+		// functionality depends on the function bits (in EX stage)
 		W_IDEX.RFunctionBits = instruction.(*rInstruction).function
 
 	} else if instruction.(*iInstruction).opcode == LB {
-		//fmt.Println("setting up LB format")
-		// load byte
+		// set up control sigs for load byte
 		// destination bits are 16-20
 		W_IDEX.RegDst = false
 		// we're using offset value in ALU
@@ -194,9 +191,9 @@ func ID_Stage() {
 
 		nonSignExtendedOffset := maskAndShiftShort(iConstMask, int16(instructionBits))
 		W_IDEX.SEOffset = int32(nonSignExtendedOffset)
-	} else {
+	} else if instruction.(*iInstruction).opcode == SB {
 		// store byte control signals
-		//fmt.Println("setting up SB format")
+		fmt.Println("setting up SB format")
 		W_IDEX.ALUSrc = true
 		W_IDEX.RegWrite = false
 		W_IDEX.MemRead = false
@@ -206,6 +203,7 @@ func ID_Stage() {
 
 		nonSignExtendedOffset := maskAndShiftShort(iConstMask, int16(instructionBits))
 		W_IDEX.SEOffset = int32(nonSignExtendedOffset)
+		fmt.Println("calc offset: ", W_IDEX.SEOffset)
 
 	}
 	//fmt.Println("setting up rest of values")
@@ -220,8 +218,16 @@ func ID_Stage() {
 
 }
 
+// Execute the instruction and place info in the EX/MEM Pipeline Register
 func EX_Stage() {
-	//TODO are we using ALU src?
+	// if ALUSrc is true, the we're adding from the offset
+	// determine correct write register value from the ALUSrc
+	if R_IDEX.ALUSrc {
+		inputToALU := R_IDEX.SEOffset
+	} else {
+		inputToALU := R_IDEX.ReadReg2Value
+	}
+
 	// NEED TO SWITCH ON ALUOp 10 for arithmetic, 00 for lb/sb
 	switch R_IDEX.ALUOp {
 	case 2:
@@ -243,15 +249,16 @@ func EX_Stage() {
 		if R_IDEX.MemToReg {
 			// we're loading a byte
 			// add the SEOffset to the register
-			W_EXMEM.ALUResult = W_IDEX.SEOffset + W_IDEX.ReadReg1Value
+			W_EXMEM.ALUResult = R_IDEX.SEOffset + R_IDEX.ReadReg1Value
 			// set the value where the byte will be stored
-			W_EXMEM.SWValue = W_IDEX.ReadReg2Value
+			W_EXMEM.SWValue = R_IDEX.ReadReg2Value
 			// write to the lb write register
+			// control with ALUSrc bit
 			W_EXMEM.WriteRegNum = R_IDEX.WriteRegNumAlt
-		} else {
+		} else if R_IDEX.MemWrite {
 			// we're storing a byte:
-			W_EXMEM.ALUResult = W_IDEX.SEOffset + W_IDEX.ReadReg1Value
-			W_EXMEM.SWValue = W_IDEX.ReadReg2Value
+			W_EXMEM.ALUResult = R_IDEX.SEOffset + R_IDEX.ReadReg1Value
+			W_EXMEM.SWValue = R_IDEX.ReadReg2Value
 		}
 
 	default:
@@ -271,19 +278,25 @@ func EX_Stage() {
 
 }
 
+// TODO sb not working yet
 func MEM_Stage() {
 	// if instruction is a lb, use address calculated in EX, index into MM
 	// get value there, put into MEM/WB
 	if R_EXMEM.MemRead {
 		// index into MM (think we use the ALU result for this)
 		W_MEMWB.LBDataValue = Main_Memory[R_EXMEM.ALUResult]
-	} else {
-		// otherwise we're just passing information from EX/MEM to MEM/WB registers
-		W_MEMWB.ALUResult = R_EXMEM.ALUResult
-		W_MEMWB.MemToReg = R_EXMEM.MemToReg
-		W_MEMWB.RegWrite = R_EXMEM.RegWrite
-		W_MEMWB.WriteRegNum = R_EXMEM.WriteRegNum
+	} else if R_EXMEM.MemWrite {
+		// we're doing a store byte
+		fmt.Println("Doing sb")
+		fmt.Printf("ALUResult: 0x%X\n", R_EXMEM.ALUResult)
+		fmt.Printf("Value: 0x%X\n\n", R_EXMEM.SWValue)
+		Main_Memory[R_EXMEM.ALUResult] = byte(R_EXMEM.SWValue)
 	}
+	// then just passing information from EX/MEM to MEM/WB registers
+	W_MEMWB.ALUResult = R_EXMEM.ALUResult
+	W_MEMWB.MemToReg = R_EXMEM.MemToReg
+	W_MEMWB.RegWrite = R_EXMEM.RegWrite
+	W_MEMWB.WriteRegNum = R_EXMEM.WriteRegNum
 
 }
 
@@ -309,8 +322,8 @@ func print() {
 	/*fmt.Println("CLOCK CYCLE: ", PC)
 	fmt.Println(Regs)*/
 
-	fmt.Printf("Write IF/ID Reg: %+v\n\n", W_IFID)
-	fmt.Printf("Read  IF/ID Reg: %+v\n\n", R_IFID)
+	/*	fmt.Printf("Write IF/ID Reg: %+v\n\n", W_IFID)
+		fmt.Printf("Read  IF/ID Reg: %+v\n\n", R_IFID)*/
 
 	/*
 		fmt.Printf("Write ID/EX Reg: %+v\n\n", W_IDEX)
