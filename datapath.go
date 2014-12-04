@@ -45,7 +45,7 @@ type IFIDReg struct {
 	Inst uint32
 }
 
-// our two IFID Registers
+// our Write/Read IFID Registers
 var W_IFID IFIDReg
 var R_IFID IFIDReg
 
@@ -60,19 +60,18 @@ type IDEXReg struct {
 	Branch   bool
 	MemToReg bool
 	RegWrite bool
-	// these would wire to ALUControl from InstructionDecode stage
+	// IRL func bits would wire direct to ALUControl from ID stage
 	RFunctionBits uint32
 
 	// values
-	ReadReg1Value int32
-	ReadReg2Value int32
-	SEOffset      int32
-
+	ReadReg1Value  int32
+	ReadReg2Value  int32
+	SEOffset       int32
 	WriteRegNumR   uint32
 	WriteRegNumAlt uint32
 }
 
-// our two IDEX Registers
+// our Write/Read IDEX Registers
 var W_IDEX IDEXReg
 var R_IDEX IDEXReg
 
@@ -85,14 +84,13 @@ type EXMEMReg struct {
 	RegWrite bool
 
 	// values
-	// CalcBTA branch target offset?
 	isZero      bool
 	ALUResult   int32
 	SWValue     int32
 	WriteRegNum uint32
 }
 
-// our two EXMEM Registers
+// our Write/Read EX/MEM Registers
 var W_EXMEM EXMEMReg
 var R_EXMEM EXMEMReg
 
@@ -101,20 +99,29 @@ type MEMWBReg struct {
 	MemToReg bool
 	RegWrite bool
 
+	// values
 	LBDataValue byte
 	ALUResult   int32
 	WriteRegNum uint32
 }
 
+// our Write/Read MEM/WB Registers
 var W_MEMWB MEMWBReg
 var R_MEMWB MEMWBReg
 
-func main() {
-	initialize()
-	//print()
+// for printing
+var ClockCycle int
 
-	// while not done
+func main() {
+	fmt.Println("Code written by Chris Stiteler for CS472 (thursday)\nProject 3 - Due 12/04/2014\n")
+	initialize()
+	ClockCycle = 0
+	// clock cycle 0 state check
+	print()
+
+	// run the pipeline
 	for i := 0; i < len(InstructionCache); i++ {
+		ClockCycle++
 		IF_Stage()
 		ID_Stage()
 		EX_Stage()
@@ -123,11 +130,6 @@ func main() {
 		print()
 		advanceRegisters()
 	}
-
-	fmt.Println(Regs)
-	// TODO sb is not working as of yet
-	fmt.Println(Main_Memory[0x108])
-
 }
 
 func initialize() {
@@ -144,6 +146,8 @@ func initialize() {
 	initInstructionCache()
 }
 
+//// PIPELINE STAGES:
+
 // Instruction Fetch
 func IF_Stage() {
 	// simply put the current instruction in the WRITE side IF/ID reg
@@ -151,7 +155,7 @@ func IF_Stage() {
 	PC++
 }
 
-// Instruction Decode
+// Decode the instruction, pass information to write ID/EX register
 func ID_Stage() {
 	// read instruction from read IF/ID reg side
 	instructionBits := R_IFID.Inst
@@ -180,7 +184,6 @@ func ID_Stage() {
 		// set up control sigs for load byte
 		// destination bits are 16-20
 		W_IDEX.RegDst = false
-		// we're using offset value in ALU
 		W_IDEX.ALUSrc = true
 		W_IDEX.RegWrite = true
 		W_IDEX.MemToReg = true
@@ -188,25 +191,26 @@ func ID_Stage() {
 		W_IDEX.MemWrite = false
 		W_IDEX.Branch = false
 		W_IDEX.ALUOp = 0
+		// we don't care here, could just grab the junk bits, but want to keep printout clean
+		W_IDEX.RFunctionBits = 0x0
 
 		nonSignExtendedOffset := maskAndShiftShort(iConstMask, int16(instructionBits))
 		W_IDEX.SEOffset = int32(nonSignExtendedOffset)
 	} else if instruction.(*iInstruction).opcode == SB {
 		// store byte control signals
-		fmt.Println("setting up SB format")
 		W_IDEX.ALUSrc = true
 		W_IDEX.RegWrite = false
 		W_IDEX.MemRead = false
 		W_IDEX.MemWrite = true
 		W_IDEX.Branch = false
 		W_IDEX.ALUOp = 0
+		// we don't care here, could just grab the junk bits, but want to keep printout clean
+		W_IDEX.RFunctionBits = 0x0
 
 		nonSignExtendedOffset := maskAndShiftShort(iConstMask, int16(instructionBits))
 		W_IDEX.SEOffset = int32(nonSignExtendedOffset)
-		fmt.Println("calc offset: ", W_IDEX.SEOffset)
-
 	}
-	//fmt.Println("setting up rest of values")
+
 	// set values
 	W_IDEX.ReadReg1Value = Regs[int(maskAndShift(src1Mask, instructionBits))]
 	W_IDEX.ReadReg2Value = Regs[int(maskAndShift(src2Mask, instructionBits))]
@@ -231,10 +235,9 @@ func EX_Stage() {
 		inputToALU = R_IDEX.ReadReg2Value
 	}
 
-	// NEED TO SWITCH ON ALUOp 10 for arithmetic, 00 for lb/sb
+	// need to switch on ALUOp: 10 (bin) for arithmetic, 00 for lb/sb
 	switch R_IDEX.ALUOp {
 	case 2:
-
 		// we have an arith. op (add, sub, or nop)
 		switch R_IDEX.RFunctionBits {
 		case ADD:
@@ -251,93 +254,97 @@ func EX_Stage() {
 		// we have a lb/sb to process
 		if R_IDEX.MemToReg {
 			// we're loading a byte
-			// add the SEOffset to the register
+			// adds the SEOffset to the register
 			W_EXMEM.ALUResult = inputToALU + R_IDEX.ReadReg1Value
-			// always get's stored anyways
-			//W_EXMEM.SWValue = R_IDEX.ReadReg2Value
-			// write to the lb write register
 
+			// write to register for a lb
 			W_EXMEM.WriteRegNum = R_IDEX.WriteRegNumAlt
+
 		} else if R_IDEX.MemWrite {
 			// we're storing a byte:
 			W_EXMEM.ALUResult = inputToALU + R_IDEX.ReadReg1Value
-			W_EXMEM.SWValue = R_IDEX.ReadReg2Value
+			//W_EXMEM.SWValue = R_IDEX.ReadReg2Value
 		}
-
 	default:
 		fmt.Println("Error reading ALUOp")
 	}
 
-	// put all values in WRITE side EX/MEM Register
+	// A real datapath would always just do this, even if not needed
+	W_EXMEM.SWValue = R_IDEX.ReadReg2Value
+
+	// don't really need, for branches
+	if W_EXMEM.ALUResult != 0 {
+		W_EXMEM.isZero = false
+	}
+
+	// forward other values to write side EX/MEM Register
 	W_EXMEM.MemRead = R_IDEX.MemRead
 	W_EXMEM.MemWrite = R_IDEX.MemWrite
 	W_EXMEM.Branch = R_IDEX.Branch
 	W_EXMEM.MemToReg = R_IDEX.MemToReg
 	W_EXMEM.RegWrite = R_IDEX.RegWrite
-
-	if W_EXMEM.ALUResult == 0 {
-		W_EXMEM.isZero = true
-	}
-
 }
 
-// TODO sb not working yet
+// Interact with Memory if necessary (lb/sb), otherwise, just forward controls
 func MEM_Stage() {
 	// if instruction is a lb, use address calculated in EX, index into MM
-	// get value there, put into MEM/WB
 	if R_EXMEM.MemRead {
 		// index into MM (think we use the ALU result for this)
 		W_MEMWB.LBDataValue = Main_Memory[R_EXMEM.ALUResult]
 	} else if R_EXMEM.MemWrite {
 		// we're doing a store byte
-		fmt.Println("Doing sb")
-		fmt.Printf("ALUResult: 0x%X\n", R_EXMEM.ALUResult)
-		fmt.Printf("Value: 0x%X\n\n", R_EXMEM.SWValue)
+		// THIS WILL TRUNCATE THE BITS IN THE REGISTER (12 bits)
 		Main_Memory[R_EXMEM.ALUResult] = byte(R_EXMEM.SWValue)
 	}
-	// then just passing information from EX/MEM to MEM/WB registers
+	// then forward control information from EX/MEM to MEM/WB registers
 	W_MEMWB.ALUResult = R_EXMEM.ALUResult
 	W_MEMWB.MemToReg = R_EXMEM.MemToReg
 	W_MEMWB.RegWrite = R_EXMEM.RegWrite
 	W_MEMWB.WriteRegNum = R_EXMEM.WriteRegNum
-
 }
 
+// Write back to register if necessary
 func WB_Stage() {
-	// write to the registers from READ side MEM/WB
 	if R_MEMWB.RegWrite {
 		if R_MEMWB.MemToReg {
-			// if doing load byte from memory
+			// if doing load byte from memory:
 			Regs[R_MEMWB.WriteRegNum] = int32(R_MEMWB.LBDataValue)
 		} else {
-			// we're doing a simple R instruction:
+			// else we're doing a simple R instruction:
 			Regs[R_MEMWB.WriteRegNum] = R_MEMWB.ALUResult
 		}
 	}
 
 }
 
+// print the Regs values and the R/W versions of each pipeline reg.
 func print() {
+	thickLine := "==========================================================="
+	thinLine := "-----------------------------------------------------------"
 
-	// TODO: need to format print of regs to correct 0x0 format, etc
+	fmt.Println(thickLine)
+	fmt.Println("CLOCK CYCLE: ", ClockCycle, "\n")
 
-	// read/write versions of each PipeReg
-	/*fmt.Println("CLOCK CYCLE: ", PC)
-	fmt.Println(Regs)*/
+	// Normal Registers
+	fmt.Println(Regs)
+	fmt.Println(thinLine)
 
-	/*	fmt.Printf("Write IF/ID Reg: %+v\n\n", W_IFID)
-		fmt.Printf("Read  IF/ID Reg: %+v\n\n", R_IFID)*/
+	// write then read versions of each PipeReg
+	fmt.Printf("WRITE IF/ID REG:\n %+v\n\n", W_IFID)
+	fmt.Printf("READ IF/ID REG:\n %+v\n\n", R_IFID)
+	fmt.Println(thinLine)
 
-	/*
-		fmt.Printf("Write ID/EX Reg: %+v\n\n", W_IDEX)
-		fmt.Printf("Read  ID/EX Reg: %+v\n\n", R_IDEX)*/
-	/*
-		fmt.Printf("Write EX/MEM Reg: %+v\n\n", W_EXMEM)
-		fmt.Printf("Read  EX/MEM Reg: %+v\n\n", R_EXMEM)
-	*/
+	fmt.Printf("Write ID/EX Reg: %+v\n\n", W_IDEX)
+	fmt.Printf("Read  ID/EX Reg: %+v\n\n", R_IDEX)
+	fmt.Println(thinLine)
 
-	/*	fmt.Printf("Write MEM/WB Reg: \n%+v\n\n", W_MEMWB)
-		fmt.Printf("Read  MEM/WB Reg: \n%+v\n\n", R_MEMWB)*/
+	fmt.Printf("Write EX/MEM Reg: %+v\n\n", W_EXMEM)
+	fmt.Printf("Read  EX/MEM Reg: %+v\n\n", R_EXMEM)
+	fmt.Println(thinLine)
+
+	fmt.Printf("Write MEM/WB Reg: \n%+v\n\n", W_MEMWB)
+	fmt.Printf("Read  MEM/WB Reg: \n%+v\n\n", R_MEMWB)
+	fmt.Println(thinLine)
 
 }
 
@@ -389,19 +396,6 @@ func initRegs() {
 }
 
 func initInstructionCache() {
-	// from detailed example
-	/*	InstructionCache = []uint32{
-		0x00a63820,
-		0x8d0f0004,
-		0xad09fffc,
-		0x00625022,
-		0x10c8fffb,
-		0x00000000,
-		0x00000000,
-		0x00000000,
-		0x00000000,
-	}*/
-
 	// our input instructions
 	InstructionCache = []uint32{
 		0xA1020000,
@@ -416,19 +410,20 @@ func initInstructionCache() {
 		0x00000000,
 		0x00000000,
 		0x00000000,
-
-		/*
-			these are:
-			7A060 sb $2, 0 ($8)
-			7A064 lb $10, -4 ($8)
-			7A068 add $3, $4, $3
-			7A06C add $7, $9, $6
-			7A070 add $9, $9, $2
-			7A074 lb $24, 0 ($8)
-			7A078 lb $17, 16 ($10)
-			7A07C sub $8, $3, $2
-		*/
 	}
+
+	/*
+		for ref, the instructions are as follows:
+		sb $2, 0 ($8)
+		lb $10, -4 ($8)
+		add $3, $4, $3
+		add $7, $9, $6
+		add $9, $9, $2
+		lb $24, 0 ($8)
+		lb $17, 16 ($10)
+		sub $8, $3, $2
+		nop x4
+	*/
 
 	// start "program counter" at 0
 	PC = 0
@@ -436,38 +431,30 @@ func initInstructionCache() {
 
 //// STRING METHODS
 func (r Registers) String() string {
-	registerStrings := make([]string, len(r))
+	registerStrings := make([]string, len(r)+1)
 	for i, _ := range r {
-		registerStrings[i] = fmt.Sprintf("[$%.2d]: 0x%.3X\n", i, r[i])
+		if i == 0 {
+			registerStrings[i] = "REGISTERS:\n"
+		} else {
+			registerStrings[i] = fmt.Sprintf("[$%.2d]: 0x%.3X\n", i, r[i])
+		}
 	}
 	return fmt.Sprintf(strings.Join(registerStrings, ""))
 }
-
-/*func (m Memory) String() string {
-	memoryStrings := make([]string, len(m))
-	for i, _ := range m {
-		if m[i] == 0xFF {
-			memoryStrings[i] = fmt.Sprintf("0x%X\n\n", m[i])
-		} else {
-			memoryStrings[i] = fmt.Sprintf("0x%X", m[i])
-		}
-	}
-	return fmt.Sprintf(strings.Join(memoryStrings, " "))
-}*/
 
 func (r IFIDReg) String() string {
 	return fmt.Sprintf("Instruction: 0x%X", r.Inst)
 }
 
 func (r IDEXReg) String() string {
-	formatString := "\n[RegDst: %v], [ALUSrc: %v], [ALUOp: 0x%X]\n[MemRead: %v], [MemWrite: %v], [MemToReg: %v]\n[Branch: %v],[RegWrite: %v]\nReadReg1Value: 0x%X\nReadReg2Value: 0x%X\nSEOffset: 0x%X\nWriteRegNumR: %d\nWriteRegNumAlt:%d"
+	formatString := "\n[RegDst: %v], [ALUSrc: %v], [ALUOp: 0x%X]\n[MemRead: %v], [MemWrite: %v], [MemToReg: %v]\n[Branch: %v],[RegWrite: %v]\nRFunctionBits: 0x%X\nReadReg1Value: 0x%X\nReadReg2Value: 0x%X\nSEOffset: 0x%X\nWriteRegNumR: %d\nWriteRegNumAlt:%d"
 	return fmt.Sprintf(formatString, r.RegDst, r.ALUSrc, r.ALUOp, r.MemRead, r.MemWrite, r.MemToReg,
-		r.Branch, r.RegWrite, r.ReadReg1Value, r.ReadReg2Value,
+		r.Branch, r.RegWrite, r.RFunctionBits, r.ReadReg1Value, r.ReadReg2Value,
 		r.SEOffset, r.WriteRegNumR, r.WriteRegNumAlt)
 }
 
 func (r EXMEMReg) String() string {
-	formatString := "\n[MemRead: %v], [MemWrite: %v], [MemToReg: %v]\n[Branch: %v],[RegWrite: %v]\nisZero: 0x%v\nALUResult: 0x%X\nSWValue: 0x%X\nWriteRegNum:%d"
+	formatString := "\n[MemRead: %v], [MemWrite: %v], [MemToReg: %v]\n[Branch: %v],[RegWrite: %v]\nisZero: %v\nALUResult: 0x%X\nSWValue: 0x%X\nWriteRegNum:%d"
 	return fmt.Sprintf(formatString, r.MemRead, r.MemWrite, r.MemToReg,
 		r.Branch, r.RegWrite, r.isZero, r.ALUResult,
 		r.SWValue, r.WriteRegNum)
