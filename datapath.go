@@ -43,6 +43,8 @@ type Disassembleable interface {
 type IFIDReg struct {
 	// the instruction itself
 	Inst uint32
+
+	//TODO the program counter in here?
 }
 
 // our two IFID Registers
@@ -111,7 +113,7 @@ var R_MEMWB MEMWBReg
 
 func main() {
 	initialize()
-	print()
+	//print()
 
 	// while not done
 	for i := 0; i < len(InstructionCache); i++ {
@@ -227,8 +229,6 @@ func EX_Stage() {
 		// we have an arith. op (add, sub, or nop)
 		switch R_IDEX.RFunctionBits {
 		case ADD:
-			fmt.Println("Did add")
-			fmt.Println("R_IDEX:", R_IDEX)
 			W_EXMEM.ALUResult = R_IDEX.ReadReg1Value + R_IDEX.ReadReg2Value
 			break
 		case SUB:
@@ -267,22 +267,6 @@ func EX_Stage() {
 
 	if W_EXMEM.ALUResult == 0 {
 		W_EXMEM.isZero = true
-	}
-	/*			// controls:
-	MemRead  bool
-	MemWrite bool
-	Branch   bool
-	MemToReg bool
-	RegWrite bool
-
-	// values
-	isZero      bool
-	ALUResult   int32
-	SWValue     uint32
-	WriteRegNum uint32*/
-	if R_IDEX.ALUOp == 2 {
-		fmt.Println("W_EXMEM:", W_EXMEM)
-		fmt.Println()
 	}
 
 }
@@ -324,23 +308,20 @@ func print() {
 	// read/write versions of each PipeReg
 	/*fmt.Println("CLOCK CYCLE: ", PC)
 	fmt.Println(Regs)*/
-	/*
-		fmt.Printf("Write IF/ID Reg: %+v\n", W_IFID)
-		fmt.Printf("Read  IF/ID Reg: %+v\n", R_IFID)
-	*/
+
+	fmt.Printf("Write IF/ID Reg: %+v\n\n", W_IFID)
+	fmt.Printf("Read  IF/ID Reg: %+v\n\n", R_IFID)
 
 	/*
 		fmt.Printf("Write ID/EX Reg: %+v\n\n", W_IDEX)
 		fmt.Printf("Read  ID/EX Reg: %+v\n\n", R_IDEX)*/
 	/*
-		fmt.Printf("Write EX/MEM Reg: %+v\n", W_EXMEM)
-		fmt.Printf("Read  EX/MEM Reg: %+v\n", R_EXMEM)
+		fmt.Printf("Write EX/MEM Reg: %+v\n\n", W_EXMEM)
+		fmt.Printf("Read  EX/MEM Reg: %+v\n\n", R_EXMEM)
 	*/
 
-	/*
-		fmt.Printf("Write MEM/WB Reg: %+v\n", W_MEMWB)
-		fmt.Printf("Read  MEM/WB Reg: %+v\n", R_MEMWB)
-	*/
+	/*	fmt.Printf("Write MEM/WB Reg: \n%+v\n\n", W_MEMWB)
+		fmt.Printf("Read  MEM/WB Reg: \n%+v\n\n", R_MEMWB)*/
 
 }
 
@@ -458,6 +439,10 @@ func (r Registers) String() string {
 	return fmt.Sprintf(strings.Join(memoryStrings, " "))
 }*/
 
+func (r IFIDReg) String() string {
+	return fmt.Sprintf("Instruction: 0x%X", r.Inst)
+}
+
 func (r IDEXReg) String() string {
 	formatString := "\n[RegDst: %v], [ALUSrc: %v], [ALUOp: 0x%X]\n[MemRead: %v], [MemWrite: %v], [MemToReg: %v]\n[Branch: %v],[RegWrite: %v]\nReadReg1Value: 0x%X\nReadReg2Value: 0x%X\nSEOffset: 0x%X\nWriteRegNumR: %d\nWriteRegNumAlt:%d"
 	return fmt.Sprintf(formatString, r.RegDst, r.ALUSrc, r.ALUOp, r.MemRead, r.MemWrite, r.MemToReg,
@@ -466,24 +451,15 @@ func (r IDEXReg) String() string {
 }
 
 func (r EXMEMReg) String() string {
-	formatString := "\n[MemRead: %v], [MemWrite: %v], [MemToReg: %v]\n[Branch: %v],[RegWrite: %v]\nisZero: 0x%v\nALUResult: %d\nSWValue: 0x%X\nWriteRegNum:%d"
+	formatString := "\n[MemRead: %v], [MemWrite: %v], [MemToReg: %v]\n[Branch: %v],[RegWrite: %v]\nisZero: 0x%v\nALUResult: 0x%X\nSWValue: 0x%X\nWriteRegNum:%d"
 	return fmt.Sprintf(formatString, r.MemRead, r.MemWrite, r.MemToReg,
 		r.Branch, r.RegWrite, r.isZero, r.ALUResult,
 		r.SWValue, r.WriteRegNum)
+}
 
-	/*	// controls:
-		MemRead  bool
-		MemWrite bool
-		Branch   bool
-		MemToReg bool
-		RegWrite bool
-
-		// values
-		// CalcBTA branch target offset?
-		isZero      bool
-		ALUResult   int32
-		SWValue     int32
-		WriteRegNum uint32*/
+func (r MEMWBReg) String() string {
+	formatString := "[MemToReg: %v], [RegWrite: %v]\nLBDataValue 0x%X\nALUResult: 0x%X\nWriteRegNum: %d"
+	return fmt.Sprintf(formatString, r.MemToReg, r.RegWrite, r.LBDataValue, r.ALUResult, r.WriteRegNum)
 }
 
 //// from Disassemble
