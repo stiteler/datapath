@@ -434,7 +434,7 @@ func (r Registers) String() string {
 	registerStrings := make([]string, len(r)+1)
 	for i, _ := range r {
 		if i == 0 {
-			registerStrings[i] = "REGISTERS:\n"
+			registerStrings[i] = fmt.Sprintf("REGISTERS:\n[$%.2d]: 0x%.3X\n", i, r[i])
 		} else {
 			registerStrings[i] = fmt.Sprintf("[$%.2d]: 0x%.3X\n", i, r[i])
 		}
