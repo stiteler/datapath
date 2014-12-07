@@ -1,5 +1,3 @@
-// Code written by Chris Stiteler for CS472 (thursday)
-// Project 3 - Due 12/04/2014
 package main
 
 import (
@@ -113,7 +111,6 @@ var R_MEMWB MEMWBReg
 var ClockCycle int
 
 func main() {
-	fmt.Println("Code written by Chris Stiteler for CS472 (thursday)\nProject 3 - Due 12/04/2014\n")
 	initialize()
 	ClockCycle = 0
 	// clock cycle 0 state check
